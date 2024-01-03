@@ -32,8 +32,6 @@ def load_offers(conn, article_id, filter_date=None):
         FROM
             offerte
         JOIN
-            articoli ON offerte.Articolo = articoli.Id_art
-        JOIN
             aziende ON offerte.Fornitore = aziende.Id_az
         WHERE
             offerte.Articolo = ? 
@@ -128,9 +126,9 @@ def main():
     st.markdown('#')
     st.markdown('#')
 
-    st.subheader('Richieste in corso')
-    req = load_requests()
-    st.dataframe(req, use_container_width=True,  hide_index=True)
+    #st.subheader('Richieste in corso')
+    #req = load_requests()
+    #st.dataframe(req, use_container_width=True,  hide_index=True)
 
 if __name__ == '__main__':
     main()
