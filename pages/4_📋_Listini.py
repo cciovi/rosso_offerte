@@ -1,7 +1,7 @@
 import streamlit as st
 import sqlite3
 import pandas as pd
-from datetime import date, timedelta
+from datetime import date, timedelta, datetime
 import time
 
 # Impostazioni delle pagina
@@ -13,6 +13,10 @@ st.set_page_config(
 # Connessione al database SQLite
 conn = sqlite3.connect('offerte.db')
 
+def load_pricelistname():
+    query = "SELECT DISTINCT Nome_listino FROM listini ORDER BY Nome_listino DESC"
+    df = pd.read_sql_query( query, conn)
+    return df
 
 def load_data():
     query = "SELECT Nome FROM aziende"
@@ -24,6 +28,17 @@ def cerca_listini(stringa):
     pattern = f"%{stringa}%"
     df = pd.read_sql_query(query, conn, params=(pattern,))
     return df
+
+
+def delete_pricelist(list_name):
+    try:
+        query = "DELETE FROM listini WHERE Nome_listino = ?"
+        conn.execute(query, (list_name,))
+        conn.commit()
+        return True
+    except Exception as e:
+        print(f"Errore durante l'eliminazione dei record: {str(e)}")
+        return False
 
 def clean_db(data_limite):
     try:
@@ -60,6 +75,7 @@ def main():
                 upload = st.button("Upload")
 
                 if upload:
+                    df.insert(0, 'Nome_listino', str(datetime.now()) + " " + fornitore)
                     df.to_sql('listini', conn, if_exists='append')
                     st.success("Listino caricato!")
                     time.sleep(2)
@@ -80,6 +96,23 @@ def main():
     st.divider()
 
     st.subheader('Pulisci il database')
+
+    st.write("Elimina un listino")
+    listini = load_pricelistname()
+    nome_list = st.selectbox('Nome listino', listini)
+    delete = st.button("Cancella")
+
+    if delete:
+        esito = delete_pricelist(nome_list)
+        if esito:
+            st.success(f"Listino {nome_list} eliminato con successo!")
+        else:
+            st.warning("Si è verificato un errore durante l'eliminazione dei record.")
+
+    st.markdown('#')
+    st.markdown('#')
+    
+    st.write('Elimina tutti i listini vecchi')
     data_max = date.today()-timedelta(days=30)
     data_limite = st.date_input('Elimina record precedenti a:', value=data_max, max_value= data_max, format='DD/MM/YYYY')
     clean = st.button('Clean up')
