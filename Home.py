@@ -1,7 +1,7 @@
 import streamlit as st
 import sqlite3
 import pandas as pd
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 # Impostazioni delle pagina
 st.set_page_config(
@@ -17,6 +17,30 @@ def load_data():
     df = pd.read_sql_query(query, conn)
     return df['Descrizione'].tolist(), df['Id_art'].tolist()
 
+def load_offers_today():
+    yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+
+    query = '''
+        SELECT 
+            offerte.Id_off,
+            offerte.Articolo AS ID_art,
+            aziende.Nome AS Nome_Fornitore,
+            articoli.Descrizione AS Nome_Articolo,
+            offerte.Prezzo
+        FROM
+            offerte
+        JOIN
+            aziende ON offerte.Fornitore = aziende.Id_az
+        JOIN
+            articoli ON offerte.Articolo = articoli.Id_art
+        WHERE
+            offerte.Data_ins >= ?
+    '''
+
+    df_raw = pd.read_sql_query(query, conn, params=(yesterday,))
+    df = df_raw.fillna("")
+    return df
+
 
 def load_offers(conn, article_id, filter_date=None):
     query = ''' 
@@ -25,7 +49,7 @@ def load_offers(conn, article_id, filter_date=None):
             offerte.Prezzo,
             offerte.Moq,
             offerte.Lead_time,
-            offerte.Incoterms,
+            offerte.Incoterms AS Exw_da,
             offerte.Pagamento,
             offerte.Data_ins,
             offerte.Data_val
@@ -46,32 +70,22 @@ def load_offers(conn, article_id, filter_date=None):
     if filter_date:
         params.append(filter_date)
     
-    df = pd.read_sql_query(query, conn, params=params)
+    df_raw = pd.read_sql_query(query, conn, params=params)
+    df = df_raw.fillna("")  # Qui i campi vuoti sono ""
     return df if not df.empty else None
 
-def load_requests():
-    query = ''' 
-        SELECT
-            aziende.Nome AS Nome_Cliente,
-            articoli.Descrizione AS Descrizione_Articolo,
-            richieste.Destinazione,
-            richieste.Quantita,
-            richieste.Target AS "Traget Price",
-            richieste.Note
-        FROM
-            richieste
-        JOIN
-            aziende ON richieste.Cliente = aziende.Id_az 
-        JOIN
-            articoli ON richieste.Articolo = articoli.Id_art 
-        ORDER BY richieste.Id_ric DESC;
-    '''  
-    df_raw = pd.read_sql_query(query, conn) # Qui i campi vuoti sono "None"
-    df = df_raw.fillna("")  # Qui i campi vuoti sono ""
+def cerca_listini(stringa):
+    query = "SELECT Fornitore, Articolo, Prezzo, Codice, EAN, Moq, Lead_time, Incoterms, Pagamento, Data_validita, Data_ins FROM listini WHERE Articolo LIKE ?"
+    pattern = f"%{stringa}%"
+    df = pd.read_sql_query(query, conn, params=(pattern,))
     return df
 
+
 def main():
-    st.title('Cerca offerte')
+    st.image("./img/logo_RGB.png")
+    st.markdown('#')
+
+    st.subheader('Cerca offerte', anchor=False)
     
     descrizioni, id_articoli = load_data()
     art = st.selectbox("Seleziona un articolo:", descrizioni, key="Selezione")
@@ -123,12 +137,55 @@ def main():
         if selected_id != 0:
             st.warning("Nessuna offerta disponibile per l'articolo selezionato.")
     
-    st.markdown('#')
-    st.markdown('#')
 
-    #st.subheader('Richieste in corso')
-    #req = load_requests()
-    #st.dataframe(req, use_container_width=True,  hide_index=True)
+    st.divider()
+
+    st.subheader('Cerca nei listini', anchor=False)
+    
+    stringa = st.text_input('Cerca per nome articolo')
+
+    if stringa:
+        tabella = cerca_listini(stringa)
+        st.dataframe(tabella, hide_index=True, use_container_width=True)
+
+
+
+    st.divider()
+
+
+    st.subheader('Offerte attuali', anchor=False)
+    df_offerte = load_offers_today()
+    if len(df_offerte) > 0:
+        Numero_offerte = []
+        Massimo = []
+        Minimo = []
+        Media = []
+        for offer in df_offerte["ID_art"]:
+            off_art = load_offers(conn, offer)   
+            Numero_offerte.append(len(off_art))   
+            Massimo.append(round(off_art['Prezzo'].max(), 3))
+            Minimo.append(round(off_art['Prezzo'].min(), 3))
+            Media.append(round(off_art['Prezzo'].mean(), 3))
+
+        df_offerte.insert(5, "N. off", Numero_offerte)
+        df_offerte.insert(6, "Massimo", Massimo)
+        df_offerte.insert(7, "Minimo", Minimo)
+        df_offerte.insert(8, "Media", Media)
+
+        
+        df_offerte['Var_min'] = (df_offerte['Prezzo'] - df_offerte['Minimo']) / df_offerte['Minimo'] * 100
+
+        df_offerte.drop(['Id_off', 'ID_art'], axis=1, inplace=True)
+
+        df_offerte['Prezzo Eur'] = df_offerte['Prezzo'].apply(lambda x: '€ {:,.2f}'.format(x))
+        df_offerte['Massimo Eur'] = df_offerte['Massimo'].apply(lambda x: '€ {:,.2f}'.format(x))
+        df_offerte['Minimo Eur'] = df_offerte['Minimo'].apply(lambda x: '€ {:,.2f}'.format(x))
+        df_offerte['Media Eur'] = df_offerte['Media'].apply(lambda x: '€ {:,.2f}'.format(x))
+
+        df = df_offerte[['Nome_Fornitore', 'Nome_Articolo', 'Prezzo Eur', 'N. off', 'Massimo Eur', 'Minimo Eur', 'Media Eur', 'Var_min']]
+
+        st.dataframe(df, use_container_width=True,  hide_index=True)
+
 
 if __name__ == '__main__':
     main()
